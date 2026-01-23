@@ -1,0 +1,99 @@
+pipeline:
+  name: SCA
+  identifier: SCA
+  projectIdentifier: BY_Project
+  orgIdentifier: default
+  tags: {}
+  properties:
+    ci:
+      codebase:
+        connectorRef: YashwanthTek
+        repoName: dvpwa
+        build: <+input>
+  stages:
+    - stage:
+        name: Build Stage
+        identifier: Build_Stage
+        description: ""
+        type: CI
+        spec:
+          cloneCodebase: true
+          caching:
+            enabled: true
+            override: true
+          buildIntelligence:
+            enabled: true
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          execution:
+            steps:
+              - step:
+                  type: Background
+                  name: DinD
+                  identifier: DinD
+                  spec:
+                    image: docker:dind
+                    privileged: true
+              - step:
+                  type: BuildAndPushDockerRegistry
+                  name: BuildAndPushDockerRegistry_1
+                  identifier: BuildAndPushDockerRegistry_1
+                  spec:
+                    connectorRef: HarnessDocker
+                    repo: yashwanth536/harness-repo
+                    tags:
+                      - sca-<+pipeline.sequenceId>
+                    caching: true
+                    baseImageConnectorRefs:
+                      - HarnessDocker
+              - parallel:
+                  - step:
+                      type: GitHubAdvancedSecurity
+                      name: GitHubAdvancedSecurity_1
+                      identifier: GitHubAdvancedSecurity_1
+                      spec:
+                        mode: orchestration
+                        config: dependabot
+                        target:
+                          type: repository
+                          detection: auto
+                        advanced:
+                          log:
+                            level: info
+                        privileged: true
+                        auth:
+                          access_token: <+secrets.getValue("Harness-Git-Tek")>
+                  - step:
+                      type: Owasp
+                      name: Owasp
+                      identifier: Owasp
+                      spec:
+                        mode: orchestration
+                        config: default
+                        target:
+                          type: repository
+                          detection: auto
+                        advanced:
+                          log:
+                            level: info
+                          fail_on_severity: none
+                          args:
+                            cli: "--failOnCVSS 11 --disableOssIndex"
+              - step:
+                  type: OsvScanner
+                  name: OsvScanner
+                  identifier: OsvScanner
+                  spec:
+                    mode: orchestration
+                    config: default
+                    target:
+                      type: repository
+                      detection: auto
+                    advanced:
+                      log:
+                        level: info
+                      fail_on_severity: none

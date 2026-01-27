@@ -1,0 +1,121 @@
+pipeline:
+  name: Governance_Pipeline
+  identifier: Governance_Pipeline
+  projectIdentifier: BY_Project
+  orgIdentifier: default
+  tags: {}
+  properties:
+    ci:
+      codebase:
+        connectorRef: YashwanthTek
+        repoName: dvpwa
+        build: <+input>
+  stages:
+    - stage:
+        name: Build Stage
+        identifier: Build_Stage
+        description: "Security Scans with Policy Logic"
+        type: CI
+        spec:
+          cloneCodebase: true
+          caching:
+            enabled: true
+            override: true
+          buildIntelligence:
+            enabled: true
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Environment Setup
+                  identifier: Environment_Setup
+                  spec:
+                    shell: Bash
+                    command: |-
+                      echo "--- Installing Tools ---"
+                      python3 --version
+                      pip3 install --upgrade pip
+                      pip3 install bandit semgrep
+              
+              - parallel:
+                  - step:
+                      type: Run
+                      name: Bandit SAST Scan
+                      identifier: Bandit_SAST_Scan
+                      spec:
+                        shell: Bash
+                        command: bandit -r . -f json -o bandit_results.json || true
+                  - step:
+                      type: Run
+                      name: Semgrep SAST Scan
+                      identifier: Semgrep_SAST_Scan
+                      spec:
+                        shell: Bash
+                        command: semgrep scan --config=auto --json -o semgrep_results.json || true
+
+              - step:
+                  type: Run
+                  name: Policy Enforcement Script
+                  identifier: Policy_Enforcement_Script
+                  spec:
+                    shell: Bash
+                    command: |-
+                      echo "--- Enforcing Security Policies ---"
+                      
+                      python3 -c "
+                      import json, sys
+
+                      # --- CONFIGURATION (Tasks 3 & 4) ---
+                      # Block these specific IDs
+                      DENY_LIST = ['CWE-79', 'CWE-89', 'B303'] 
+                      
+                      # Fail on these severities
+                      FAIL_SEVERITIES = ['CRITICAL', 'HIGH', 'ERROR']
+
+                      violation_count = 0
+
+                      def check_bandit():
+                          count = 0
+                          try:
+                              with open('bandit_results.json', 'r') as f:
+                                  data = json.load(f)
+                              for issue in data.get('results', []):
+                                  sev = issue.get('issue_severity', '').upper()
+                                  id = str(issue.get('test_id', ''))
+                                  if sev in FAIL_SEVERITIES or id in DENY_LIST:
+                                      print(f'[Bandit] Violation: {id} (Severity: {sev})')
+                                      count += 1
+                          except: pass
+                          return count
+
+                      def check_semgrep():
+                          count = 0
+                          try:
+                              with open('semgrep_results.json', 'r') as f:
+                                  data = json.load(f)
+                              for issue in data.get('results', []):
+                                  sev = issue.get('extra', {}).get('severity', '').upper()
+                                  id = issue.get('check_id', '')
+                                  if sev in FAIL_SEVERITIES or id in DENY_LIST:
+                                      print(f'[Semgrep] Violation: {id} (Severity: {sev})')
+                                      count += 1
+                          except: pass
+                          return count
+
+                      print('--- Scanning for Violations ---')
+                      violation_count += check_bandit()
+                      violation_count += check_semgrep()
+
+                      if violation_count > 0:
+                          print(f'FAILED: Found {violation_count} policy violations.')
+                          sys.exit(1) # Task 8: Exit Action
+                      else:
+                          print('PASSED: No critical violations found.')
+                          sys.exit(0)
+                      "

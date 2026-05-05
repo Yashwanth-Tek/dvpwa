@@ -1,0 +1,87 @@
+pipeline:
+  name: Harness-workshop
+  identifier: Harnessworkshop
+  projectIdentifier: BY_Project
+  orgIdentifier: default
+  properties:
+    ci:
+      codebase:
+        connectorRef: YashwanthTek
+        repoName: dvpwa
+        build: <+input>
+  stages:
+    - stage:
+        name: Build_Test_Stage
+        identifier: Build_Test_Stage
+        type: CI
+        spec:
+          cloneCodebase: true
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Install Dependencies
+                  identifier: install_deps
+                  spec:
+                    image: python:3.11-slim
+                    connectorRef: HarnessDocker
+                    shell: Sh
+                    command: |
+                      cd /harness
+                      apt-get update && apt-get install -y --no-install-recommends \
+                        gcc libpq-dev python3-dev
+                      pip install --upgrade pip
+                      pip install -r requirements.txt
+              - step:
+                  type: Run
+                  name: Run Tests
+                  identifier: run_tests
+                  spec:
+                    image: python:3.11-slim
+                    connectorRef: HarnessDocker
+                    shell: Sh
+                    command: |
+                      cd /harness
+                      apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev python3-dev
+                      pip install --upgrade pip
+                      pip install -r requirements.txt pytest
+                      pytest tests/ --junitxml=junit.xml -v
+                    reports:
+                      type: JUnit
+                      spec:
+                        paths:
+                          - "**/junit.xml"
+              - step:
+                  type: Run
+                  name: Conditional Step
+                  identifier: conditional_step
+                  when:
+                    stageStatus: Success
+                    condition: <+pipeline.branch> == "main"
+                  spec:
+                    image: alpine
+                    shell: Sh
+                    command: |
+                      echo "Running only on MAIN branch"
+              - step:
+                  type: BuildAndPushDockerRegistry
+                  name: Build Docker Image
+                  identifier: docker_build
+                  spec:
+                    connectorRef: HarnessDocker
+                    repo: yashwanth536/dvpwa
+                    tags:
+                      - latest
+                    dockerfile: Dockerfile
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          caching:
+            enabled: true
+            paths:
+              - /root/.cache/pip
+          buildIntelligence:
+            enabled: true
